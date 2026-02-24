@@ -8,7 +8,7 @@ resource "aws_security_group" "bastion_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["${var.my_ip}/32"]
+    cidr_blocks = ["213.109.232.90/32"]
   }
 
   egress {
@@ -52,6 +52,14 @@ resource "aws_security_group" "monitoring_sg" {
     protocol        = "tcp"
     cidr_blocks = ["213.109.232.90/32"] # Allow Prometheus to be scraped from my IP for testing
   }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    security_groups = [aws_security_group.bastion_sg.id]
+
+  }
 }
 
 resource "aws_security_group" "alb" {
@@ -72,7 +80,17 @@ resource "aws_security_group" "alb" {
     protocol    = "-1" # Allow all outbound traffic
     cidr_blocks = ["0.0.0.0/0"]
   }
+
+  ingress {
+    from_port   = 9093 # Alertmanager UI
+    to_port     = 9093
+    protocol    = "tcp"
+    cidr_blocks = ["213.109.232.90/32"] 
+  }
+
+
 }
+
 
 # LLM Security Group: Internal communication for Models and Metrics
 resource "aws_security_group" "llm_sg" {
@@ -133,5 +151,11 @@ resource "aws_security_group" "db_sg" {
     to_port     = 0
     protocol    = "-1"
     cidr_blocks = ["0.0.0.0/0"]
+  }
+  ingress {
+    from_port       = 22
+    to_port         = 22
+    protocol        = "tcp"
+    security_groups = [aws_security_group.bastion_sg.id] # Access via Bastion only
   }
 }

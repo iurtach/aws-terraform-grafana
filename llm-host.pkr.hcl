@@ -9,7 +9,7 @@ packer {
 
 source "amazon-ebs" "llm_gpu" {
   ami_name      = "llm-gpu-node-{{timestamp}}"
-  instance_type = "g4dn.xlarge" # Needs GPU instance to install drivers properly
+  instance_type = "t3.large" 
   region        = "eu-north-1"
   source_ami_filter {
     filters = {
@@ -30,11 +30,10 @@ source "amazon-ebs" "llm_gpu" {
 build {
   sources = ["source.amazon-ebs.llm_gpu"]
 
-  # Provisioner to install NVIDIA drivers and Ollama
+  # Provisioner to install Ollama
   provisioner "shell" {
     inline = [
       "sudo apt-get update",
-      "sudo apt-get install -y nvidia-driver-535 nvidia-utils-535", # GPU Drivers
       "curl -fsSL https://ollama.com/install.sh | sh",               # Ollama
       "sudo systemctl enable ollama"
     ]

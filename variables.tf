@@ -21,3 +21,19 @@ variable "my_ip" {
   description = "My IP address"
   default = "213.109.232.90"
 }
+
+variable "telegram_bot_token" {
+  description = "Token Telegram bot"
+  type        = string
+  sensitive   = true
+}
+
+variable "telegram_chat_id" {
+  description = "ID Telegram chat"
+  type        = string
+}
+
+variable "db_password" {
+  type      = string
+  sensitive = true
+}

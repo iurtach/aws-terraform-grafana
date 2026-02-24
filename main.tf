@@ -1,14 +1,13 @@
 module "network" {
   source               = "./modules/vpc"
   vpc_cidr             = var.vpc_cidr
-  public_subnet_cidr   = var.public_subnets_cidr
-  private_subnet_cidr  = var.private_subnets_cidr
+  public_subnets_cidr   = var.public_subnets_cidr
+  private_subnets_cidr  = var.private_subnets_cidr
 }
 
 module "security" {
   source    = "./modules/security"
   vpc_id    = module.network.vpc_id
-  my_ip     = var.my_ip # Access to Bastion
 }
 
 module "compute" {
@@ -22,6 +21,10 @@ module "compute" {
   db_sg_id                = module.security.db_sg_id
   llm_sg_id              = module.security.llm_sg_id
   key_name               = var.key_name
+  telegram_bot_token = var.telegram_bot_token
+  telegram_chat_id   = var.telegram_chat_id
+  db_password = var.db_password
+
 }
 
 

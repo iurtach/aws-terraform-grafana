@@ -1,11 +1,4 @@
-packer {
-  required_plugins {
-    amazon = {
-      version = ">= 1.2.8"
-      source  = "github.com/hashicorp/amazon"
-    }
-  }
-}
+
 
 source "amazon-ebs" "monitoring" {
   ami_name      = "monitoring-host-{{timestamp}}"
@@ -30,7 +23,7 @@ source "amazon-ebs" "monitoring" {
 build {
   sources = ["source.amazon-ebs.monitoring"]
 
-  # Provisioner to install Prometheus and Grafana
+  # Provisioner to install Prometheus and Grafana and Docker
   provisioner "shell" {
     inline = [
       "sudo apt-get update",
@@ -38,16 +31,23 @@ build {
       
       # Install Prometheus
       "sudo apt-get install -y prometheus",
+
+      # Install Prometheus Alertmanger
+      "sudo apt-get install -y prometheus-alertmanager",
       
       # Install Grafana
       "wget -q -O - https://apt.grafana.com/gpg.key | gpg --dearmor | sudo tee /etc/apt/keyrings/grafana.gpg > /dev/null",
       "echo \"deb [signed-by=/etc/apt/keyrings/grafana.gpg] https://apt.grafana.com stable main\" | sudo tee /etc/apt/sources.list.d/grafana.list",
       "sudo apt-get update",
       "sudo apt-get install -y grafana",
+
+      # Install Docker
+      "sudo apt-get install -y docker.io",
       
       # Enable services
       "sudo systemctl enable prometheus",
-      "sudo systemctl enable grafana-server"
+      "sudo systemctl enable grafana-server",
+      "sudo systemctl enable docker"
     ]
   }
 }
