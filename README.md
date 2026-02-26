@@ -100,6 +100,10 @@ Imports pre-defined JSON Dashboards for Linux and PostgreSQL.
 
 IAM Security & Stability: The monitoring instance uses an IAM role with AmazonEC2ReadOnlyAccess to safely query AWS tags. The file permissions (chown 472:472) was granted to ensure the Grafana Docker container can reliably read its configuration from mounted volumes. 🛡️
 
+## Monitoring & Metrics Overview
+I use a multi-exporter approach to provide a 360-degree view of the infrastructure:
+<img width="780" height="171" alt="image" src="https://github.com/user-attachments/assets/f8e9ebd1-8f55-47f3-baaa-af68e815e42d" />
+
 ## 🚦 Getting Started
 Clone the repository.
 
