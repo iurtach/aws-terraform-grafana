@@ -81,6 +81,25 @@ DB SG: Allows PostgreSQL connections exclusively from the LLM compute layer.
 
 Monitoring SG: Limits access to Grafana (3000) and Prometheus (9090) to authorized IPs.
 
+## 🏗️ Technical Architecture & Service Discovery
+This project implements a dynamic monitoring ecosystem that automatically adapts to your AWS environment. ☁️
+
+EC2 Service Discovery (SD): Prometheus 🔍 does not rely on static IP lists. It integrates directly with the AWS API to dynamically discover targets based on their metadata.
+
+Tag-Based Filtering: I use a specific relabeling logic to ensure only the right instances are monitored. Prometheus only scrapes targets where:
+
+The Monitoring tag is set to prometheus.
+
+The ServiceType tag matches the expected exporter (e.g., node, postgres).
+
+Grafana Auto-Provisioning: The entire Grafana 📊 setup is "Configuration as Code." Upon startup, it automatically:
+
+Connects to the Prometheus Data Source.
+
+Imports pre-defined JSON Dashboards for Linux and PostgreSQL.
+
+IAM Security & Stability: The monitoring instance uses an IAM role with AmazonEC2ReadOnlyAccess to safely query AWS tags. The file permissions (chown 472:472) was granted to ensure the Grafana Docker container can reliably read its configuration from mounted volumes. 🛡️
+
 ## 🚦 Getting Started
 Clone the repository.
 
