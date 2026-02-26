@@ -118,30 +118,88 @@ user_data = <<-EOF
 #!/bin/bash
 
   apt-get update
+  
+  until apt-get update; do
+      echo "Waiting for apt lock..."
+      sleep 5
+    done
+  
   apt-get install -y docker.io
-  docker network create monitoring-network || true
-  mkdir -p /etc/prometheus /etc/alertmanager /etc/grafana
   
-  # Run Blackbox Exporter for monitoring LLM
-  docker run -d \
-    --name blackbox-exporter \
-    --network monitoring-network \
-    --network-alias blackbox-exporter \
-    -p 9115:9115 \
-    prom/blackbox-exporter:latest
-  
-  docker rm -f prometheus alertmanager cloudwatch_exporter || true
+  systemctl start docker
+  systemctl enable docker
 
-  docker run -d -p 80:8080 \
-    -e OLLAMA_BASE_URL=http://${aws_instance.llm.private_ip}:11434 \
-    --name open-webui \
-    --restart always \
-    ghcr.io/open-webui/open-webui:main
+  sleep 10 # Wait for Docker to be fully up and running
+
+  docker pull prom/prometheus:latest
+  docker pull prom/alertmanager:latest
+  docker pull grafana/grafana:latest
+  docker pull prom/blackbox-exporter:latest
+  docker pull prom/cloudwatch-exporter:latest
+  docker pull ghcr.io/open-webui/open-webui:main
+
+  docker network create monitoring-network || true
+  mkdir -p /etc/prometheus /etc/alertmanager /etc/blackbox
+  mkdir -p /etc/grafana/provisioning/datasources /etc/grafana/provisioning/dashboards
+  mkdir -p /var/lib/grafana/dashboards
+
+  curl -L https://grafana.com/api/dashboards/9628/revisions/7/download -o /var/lib/grafana/dashboards/postgres-exporter.json
+  curl -sL https://grafana.com/api/dashboards/1860/revisions/37/download -o /var/lib/grafana/dashboards/node-exporter.json
+  
+cat <<EOT > /etc/grafana/provisioning/datasources/datasource.yml
+  apiVersion: 1
+  datasources:
+    - name: Prometheus
+      type: prometheus
+      url: http://prometheus:9090
+      access: proxy
+      isDefault: true
+EOT
+
+cat <<EOT > /etc/grafana/provisioning/dashboards/dashboard_provider.yml
+  apiVersion: 1
+  providers:
+    - name: 'node-exporter-dash'
+      orgId: 1
+      folder: 'System Metrics'
+      type: file
+      disableDeletion: false
+      editable: true
+      options:
+        path: /var/lib/grafana/dashboards
+EOT
+
+  chown -R 472:472 /etc/grafana /var/lib/grafana
+  chown -R 472:472 /etc/grafana/provisioning
 
   # Load the generated Prometheus configuration from Terraform
   cat <<EOT > /etc/prometheus/prometheus.yml
 ${local.prometheus_config}
 EOT
+
+  cat <<EOT > /etc/blackbox/blackbox.yml
+${local.blackbox_config}
+EOT
+
+docker rm -f prometheus alertmanager cloudwatch_exporter blackbox-exporter grafana open-webui || true
+
+# Run Blackbox Exporter for monitoring LLM
+  docker run -d \
+    --name blackbox-exporter \
+    --network monitoring-network \
+    --network-alias blackbox-exporter \
+    -v /etc/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml \
+    -p 9115:9115 \
+    prom/blackbox-exporter:latest
+
+  docker run -d -p 80:8080 \
+    --name open-webui \
+    --network monitoring-network \
+    --restart always \
+    -e OLLAMA_BASE_URL=http://${aws_instance.llm.private_ip}:11434 \
+    ghcr.io/open-webui/open-webui:main
+
+  
 
   cat <<EOT > /etc/prometheus/alert_rules.yml
 ${local.alert_rules}
@@ -166,12 +224,18 @@ EOT
     --restart always \
     prom/alertmanager:latest
 
-  
+
   docker run -d -p 3000:3000 \
     --name grafana \
+    --network monitoring-network \
     --restart always \
+    -v /etc/grafana/provisioning/datasources/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml \
+    -v /etc/grafana/provisioning/dashboards/dashboard_provider.yml:/etc/grafana/provisioning/dashboards/dashboard_provider.yml \
+    -v /var/lib/grafana/dashboards:/var/lib/grafana/dashboards \
     grafana/grafana:latest
-  
+
+
+
   cat <<EOT > /etc/prometheus/cloudwatch_exporter.yml
 ${local.cloudwatch_exporter} 
 EOT
@@ -201,14 +265,29 @@ resource "aws_instance" "db" {
 
 user_data = <<-EOF
     #!/bin/bash
+    exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
+
+    echo "Starting user_data script..."
+
+    apt-get update
     
-    while fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1; do
-      echo "Waiting for other package manager to finish..."
+    until apt-get update; do
+      echo "Waiting for apt lock..."
       sleep 5
     done
 
-    apt-get update
     apt-get install -y docker.io
+
+    systemctl start docker
+    systemctl enable docker
+
+    sleep 10 # Wait for Docker to be fully up and running
+
+    echo "Pulling docker images..."
+    docker pull postgres:latest
+    docker pull prometheuscommunity/postgres-exporter:latest
+    docker pull prom/node-exporter:latest
+
     docker run -d --name postgres --network host \
       -e POSTGRES_PASSWORD=${var.db_password} \
       -e POSTGRES_USER=admin \
@@ -288,6 +367,7 @@ locals {
   prometheus_config = templatefile("${path.module}/templates/prometheus.yml.tpl", {
     region = "eu-north-1"
     llm_host_ip            = aws_instance.llm.private_ip
+    db_host_ip             = aws_instance.db.private_ip
     blackbox_exporter_host = "blackbox-exporter"
     alertmanager_host      = "alertmanager"  
   })
@@ -302,4 +382,6 @@ locals {
   cloudwatch_exporter = templatefile("${path.module}/templates/cloudwatch_exporter.yml.tpl", {
     region = "eu-north-1"
   })
+
+  blackbox_config = templatefile("${path.module}/templates/blackbox.yml.tpl", {})
 }

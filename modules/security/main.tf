@@ -50,7 +50,7 @@ resource "aws_security_group" "monitoring_sg" {
     from_port       = 9090 # Prometheus scraping port
     to_port         = 9090
     protocol        = "tcp"
-    cidr_blocks = ["213.109.232.90/32"] # Allow Prometheus to be scraped from my IP for testing
+    cidr_blocks = ["0.0.0.0/0"] # Allow Prometheus to be scraped from my IP for testing
   }
 
   ingress {
@@ -145,6 +145,12 @@ resource "aws_security_group" "db_sg" {
     to_port         = 9187
     protocol        = "tcp"
     security_groups = [aws_security_group.monitoring_sg.id] # Allow monitoring of DB metrics
+  }
+  ingress {
+    from_port       = 9100 # Node Exporter port
+    to_port         = 9100
+    protocol        = "tcp"
+    security_groups = [aws_security_group.monitoring_sg.id] # Allow monitoring of DB host metrics
   }
   egress {
     from_port   = 0

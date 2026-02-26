@@ -16,3 +16,4 @@ output "llm_instance_private_ip" {
   description = "Private IP address of the LLM host"
   value       = aws_instance.llm
 }
+

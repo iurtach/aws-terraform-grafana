@@ -26,7 +26,7 @@ scrape_configs:
       # Create the __address__ label by combining the private IP and the node_exporter port (9100)
       - source_labels: [__meta_ec2_private_ip]
         regex: '(.*)'
-        replacement: '$${1}:9100'
+        replacement: '$$1:9100'
         target_label: __address__ 
       # set the instance label to the Name tag for easier identification in Grafana
       - source_labels: [__meta_ec2_tag_Name]
@@ -41,9 +41,12 @@ scrape_configs:
         action: keep
       - source_labels: [__meta_ec2_private_ip]
         regex: '(.*)'
-        replacement: '$${1}:9187'
+        replacement: '$$1:9187'
         target_label: __address__
 
+  - job_name: 'db-node-exporter'
+    static_configs:
+      - targets: ['${db_host_ip}:9100']
       
   #- job_name: 'ollama'
    # ec2_sd_configs:
@@ -68,8 +71,8 @@ scrape_configs:
       - targets: ['cloudwatch_exporter:9106']
   
   - job_name: 'ollama_exporter'
-    metrics_path: /probes/ollama
-    parameters:
+    metrics_path: /probe
+    params:
       module: [http_2xx]
     static_configs:
       - targets:
@@ -80,4 +83,4 @@ scrape_configs:
       - source_labels: [__param_target]
         target_label: instance
       - target_label: __address__
-        replacement: ${blackbox_exporter_host}:9115
+        replacement: '${blackbox_exporter_host}:9115'
