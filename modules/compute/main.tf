@@ -71,39 +71,10 @@ resource "aws_instance" "llm" {
     Monitoring  = "prometheus"
     ServiceType = "node-ollama"
   }
-  user_data = <<-EOF
-    #!/bin/bash
-    exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
-    # node_exporter
-    wget https://github.com/prometheus/node_exporter/releases/download/v1.10.2/node_exporter-1.10.2.linux-amd64.tar.gz
-    tar xvf node_exporter-1.10.2.linux-amd64.tar.gz
-    cp node_exporter-1.10.2.linux-amd64/node_exporter /usr/local/bin/
-    cat <<EOT > /etc/systemd/system/node_exporter.service
-    [Unit]
-      Description=Node Exporter
-      After=network.target
-
-    [Service]
-      User=ubuntu
-      ExecStart=/usr/local/bin/node_exporter
-      Restart=always
-
-    [Install]
-      WantedBy=multi-user.target
-    EOT
-
-    mkdir -p /etc/systemd/system/ollama.service.d
-    cat <<EOT > /etc/systemd/system/ollama.service.d/override.conf
-    [Service]
-      Environment="OLLAMA_HOST=0.0.0.0"
-    EOT
-
-    systemctl daemon-reload
-    systemctl enable node_exporter
-    systemctl start node_exporter
-    systemctl restart ollama
-  EOF
+  user_data = templatefile("${path.module}/templates/llm_setup.sh.tpl", {})
 }
+
+
 
 resource "aws_instance" "monitoring" {
   ami                    = data.aws_ami.ubuntu.id
@@ -114,141 +85,40 @@ resource "aws_instance" "monitoring" {
   tags                   = { Name = "monitoring-host" }
   iam_instance_profile   = aws_iam_instance_profile.prometheus_profile.name
 
-  user_data = <<-EOF
-#!/bin/bash
-exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
-apt-get update
-
-until apt-get update; do
-  echo "Waiting for apt lock..."
-  sleep 5
-done
-
-apt-get install -y docker.io
-
-systemctl start docker
-systemctl enable docker
-
-sleep 10 # Wait for Docker to be fully up and running
-
-docker pull prom/prometheus:latest
-docker pull prom/alertmanager:latest
-docker pull grafana/grafana:latest
-docker pull prom/blackbox-exporter:latest
-docker pull prom/cloudwatch-exporter:latest
-docker pull ghcr.io/open-webui/open-webui:main
-
-docker network create monitoring-network || true
-mkdir -p /etc/prometheus /etc/alertmanager /etc/blackbox
-mkdir -p /etc/grafana/provisioning/datasources /etc/grafana/provisioning/dashboards
-mkdir -p /var/lib/grafana/dashboards
-
-cat <<'EOT' > /etc/prometheus/prometheus.yml
-${local.prometheus_config}
-EOT
-cat <<'EOT' > /etc/blackbox/blackbox.yml
-${local.blackbox_config}
-EOT
-cat <<'EOT' > /etc/prometheus/alert_rules.yml
-${local.alert_rules}
-EOT
-cat <<'EOT' > /etc/alertmanager/alertmanager.yml
-${local.alertmanager_config}
-EOT
-cat <<'EOT' > /etc/prometheus/cloudwatch_exporter.yml
-${local.cloudwatch_exporter}
-EOT
-
-curl -L https://grafana.com/api/dashboards/9628/revisions/7/download -o /var/lib/grafana/dashboards/postgres-exporter.json
-curl -sL https://grafana.com/api/dashboards/1860/revisions/37/download -o /var/lib/grafana/dashboards/node-exporter.json
-
-cat <<'EOT' > /etc/grafana/provisioning/datasources/datasource.yml
-apiVersion: 1
-datasources:
-  - name: Prometheus
-    type: prometheus
-    url: http://prometheus:9090
-    access: proxy
-    isDefault: true
-EOT
-
-cat <<'EOT' > /etc/grafana/provisioning/dashboards/dashboard_provider.yml
-apiVersion: 1
-providers:
-  - name: 'node-exporter-dash'
-    orgId: 1
-    folder: 'System Metrics'
-    type: file
-    disableDeletion: false
-    editable: true
-    options:
-      path: /var/lib/grafana/dashboards
-EOT
-
-chown -R 472:472 /etc/grafana /var/lib/grafana
-chown -R 472:472 /etc/grafana/provisioning
-
-  # FIX: Use <<'EOT' (quoted) so bash does not re-interpret $1 regex backreferences
-  # that Terraform has already rendered into the config
-  
-
-
-
-docker rm -f prometheus alertmanager cloudwatch_exporter blackbox-exporter grafana open-webui || true
-
-  docker run -d \
-    --name blackbox-exporter \
-    --network monitoring-network \
-    --network-alias blackbox-exporter \
-    -v /etc/blackbox/blackbox.yml:/etc/blackbox_exporter/config.yml \
-    -p 9115:9115 \
-    prom/blackbox-exporter:latest
-
-  docker run -d -p 80:8080 \
-    --name open-webui \
-    --network monitoring-network \
-    --restart always \
-    -e OLLAMA_BASE_URL=http://${aws_instance.llm.private_ip}:11434 \
-    ghcr.io/open-webui/open-webui:main
-
-  
-
-  docker run -d --name prometheus --network monitoring-network \
-    -p 9090:9090 \
-    -v /etc/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml \
-    -v /etc/prometheus/alert_rules.yml:/etc/prometheus/alert_rules.yml \
-    --restart always \
-    prom/prometheus:latest
-
-  
-  docker run -d --name alertmanager --network monitoring-network \
-    -p 9093:9093 \
-    -v /etc/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml \
-    --restart always \
-    prom/alertmanager:latest
-
-  docker run -d -p 3000:3000 \
-    --name grafana \
-    --network monitoring-network \
-    --restart always \
-    -v /etc/grafana/provisioning/datasources/datasource.yml:/etc/grafana/provisioning/datasources/datasource.yml \
-    -v /etc/grafana/provisioning/dashboards/dashboard_provider.yml:/etc/grafana/provisioning/dashboards/dashboard_provider.yml \
-    -v /var/lib/grafana/dashboards:/var/lib/grafana/dashboards \
-    grafana/grafana:latest
-
-  
-
-  docker run -d --name cloudwatch_exporter --network monitoring-network \
-    -p 9106:9106 \
-    -v /etc/prometheus/cloudwatch_exporter.yml:/config.yml \
-    --restart always \
-    prom/cloudwatch-exporter:latest /config.yml
-
-EOF
+user_data = templatefile("${path.module}/templates/monitoring_setup.sh.tpl", {
+    prometheus_config   = local.prometheus_config
+    alertmanager_config = local.alertmanager_config
+    alert_rules         = local.alert_rules
+    blackbox_config     = local.blackbox_config
+    cloudwatch_exporter = local.cloudwatch_exporter
+    llm_private_ip      = aws_instance.llm.private_ip
+  })
 
   lifecycle {
     create_before_destroy = true
   }
+}
+
+locals {
+  prometheus_config = templatefile("${path.module}/templates/prometheus.yml.tpl", {
+    region                 = "eu-north-1"
+    llm_host_ip            = aws_instance.llm.private_ip
+    db_host_ip             = aws_instance.db.private_ip
+    blackbox_exporter_host = "blackbox-exporter"
+    alertmanager_host      = "alertmanager"
+  })
+
+  alertmanager_config = templatefile("${path.module}/templates/alertmanager.yml.tpl", {
+    slack_webhook_url = var.slack_webhook_url
+  })
+
+  alert_rules = templatefile("${path.module}/templates/alert_rules.yml.tpl", {})
+
+  cloudwatch_exporter = templatefile("${path.module}/templates/cloudwatch_exporter.yml.tpl", {
+    region = "eu-north-1"
+  })
+
+  blackbox_config = templatefile("${path.module}/templates/blackbox.yml.tpl", {})
 }
 
 resource "aws_instance" "db" {
@@ -259,53 +129,16 @@ resource "aws_instance" "db" {
 
   vpc_security_group_ids = [var.db_sg_id, var.bastion_sg_id]
 
-  user_data = <<-EOF
-    #!/bin/bash
-    exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
-
-    echo "Starting user_data script..."
-
-    apt-get update
-
-    until apt-get update; do
-      echo "Waiting for apt lock..."
-      sleep 5
-    done
-
-    apt-get install -y docker.io
-
-    systemctl start docker
-    systemctl enable docker
-
-    sleep 10 # Wait for Docker to be fully up and running
-
-    echo "Pulling docker images..."
-    docker pull postgres:latest
-    docker pull prometheuscommunity/postgres-exporter:latest
-    docker pull prom/node-exporter:latest
-
-    docker run -d --name postgres --network host \
-      -e POSTGRES_PASSWORD=${var.db_password} \
-      -e POSTGRES_USER=admin \
-      -e POSTGRES_DB=llm_test_db \
-      --restart always \
-      postgres:latest
-
-    docker run -d --name postgres_exporter --network host \
-      -e DATA_SOURCE_NAME="postgresql://admin:${var.db_password}@localhost:5432/llm_test_db?sslmode=disable" \
-      --restart always \
-      prometheuscommunity/postgres-exporter:latest
-
-    docker run -d --name node_exporter --network host \
-      --restart always \
-      prom/node-exporter:latest
-  EOF
+  user_data = templatefile("${path.module}/templates/db_setup.sh.tpl", {
+    db_password = var.db_password
+  })
 
   tags = {
     Name        = "llm-test-db"
     Monitoring  = "prometheus"
     ServiceType = "postgres"
   }
+
 }
 
 # Application Load Balancer
@@ -356,26 +189,53 @@ resource "aws_lb_target_group_attachment" "llm_attachment" {
   port             = 11434
 }
 
+resource "aws_sns_topic" "monitoring_alerts" {
+  name = "monitoring-alerts-topic"
+  
+}
 
-locals {
-  prometheus_config = templatefile("${path.module}/templates/prometheus.yml.tpl", {
-    region                 = "eu-north-1"
-    llm_host_ip            = aws_instance.llm.private_ip
-    db_host_ip             = aws_instance.db.private_ip
-    blackbox_exporter_host = "blackbox-exporter"
-    alertmanager_host      = "alertmanager"
-  })
+resource "aws_sns_topic_subscription" "email_subscription" {
+  topic_arn = aws_sns_topic.monitoring_alerts.arn
+  protocol  = "email"
+  endpoint  = "iur.tach@gmail.com"
+  
+}
+resource "aws_cloudwatch_metric_alarm" "alb_unhealthy_hosts" {
+  alarm_name          = "ALB-Unhealthy-Hosts"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "UnhealthyHostCount"
+  namespace           = "AWS/ApplicationELB"
+  period              = "60"
+  statistic           = "Average"
+  threshold           = "0"
 
-  alertmanager_config = templatefile("${path.module}/templates/alertmanager.yml.tpl", {
-    bot_token = var.telegram_bot_token
-    chat_id   = var.telegram_chat_id
-  })
+  dimensions = {
+    LoadBalancer = aws_lb.llm_alb.arn_suffix
+    TargetGroup  = aws_lb_target_group.llm_tg.arn_suffix
+  }
 
-  alert_rules = templatefile("${path.module}/templates/alert_rules.yml.tpl", {})
+  alarm_description   = "Alarm when ALB has unhealthy hosts in the target group"
+  actions_enabled     = true 
 
-  cloudwatch_exporter = templatefile("${path.module}/templates/cloudwatch_exporter.yml.tpl", {
-    region = "eu-north-1"
-  })
+  
+}
 
-  blackbox_config = templatefile("${path.module}/templates/blackbox.yml.tpl", {})
+resource "aws_cloudwatch_metric_alarm" "ec2_status_check" {
+  alarm_name          = "[llm]-[test]-[ec2]-[status-check-failed]"
+  comparison_operator = "GreaterThanThreshold"
+  evaluation_periods  = "2"
+  metric_name         = "StatusCheckFailed"
+  namespace           = "AWS/EC2"
+  period              = "60"
+  statistic           = "Maximum"
+  threshold           = "0"
+  alarm_description   = "This alarm triggers if the EC2 instance status check fails."
+
+  dimensions = {
+    InstanceId = aws_instance.llm.id
+  }
+
+  alarm_actions = [aws_sns_topic.monitoring_alerts.arn]
+  ok_actions    = [aws_sns_topic.monitoring_alerts.arn]
 }

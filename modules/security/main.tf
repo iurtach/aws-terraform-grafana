@@ -8,7 +8,7 @@ resource "aws_security_group" "bastion_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["213.109.232.90/32"]
+    cidr_blocks = ["195.160.232.69/32"]
   }
 
   egress {
@@ -29,7 +29,7 @@ resource "aws_security_group" "monitoring_sg" {
     from_port   = 3000 # Grafana UI
     to_port     = 3000
     protocol    = "tcp"
-    cidr_blocks = ["213.109.232.90/32"] # My IP for Grafana access
+    cidr_blocks = ["0.0.0.0/0"] # For presentation purposes, allow access from anywhere. In production, restrict this to your IP or a VPN.
   }
 
   ingress {
@@ -50,7 +50,7 @@ resource "aws_security_group" "monitoring_sg" {
     from_port       = 9090 # Prometheus scraping port
     to_port         = 9090
     protocol        = "tcp"
-    cidr_blocks = ["0.0.0.0/0"] # Allow Prometheus to be scraped from my IP for testing
+    cidr_blocks = ["0.0.0.0/0"] # Allow Prometheus to be scraped from any IP for testing
   }
 
   ingress {
@@ -85,7 +85,7 @@ resource "aws_security_group" "alb" {
     from_port   = 9093 # Alertmanager UI
     to_port     = 9093
     protocol    = "tcp"
-    cidr_blocks = ["213.109.232.90/32"] 
+    cidr_blocks = ["195.160.232.69/32"] 
   }
 
 

@@ -1,65 +1,111 @@
 groups:
-  - name: llm_test_alerts
+  - name: infrastructure_alerts
     rules:
-      - alert: "[llm]-[test]-[ec2]-[low]-[memory]"
-        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) * 100 < 10
-        for: 5m
-        labels:
-          severity: warning
-        annotations:
-          summary: "Low level of free RAM {{ \$labels.instance }}"
-          description: "Less then 10% free Ram"
-
+      # --- DB Alerts ---
       - alert: "[llm]-[test]-[db]-[high]-[storage]"
-        expr: 100 - (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"} * 100) > 85
+        expr: 100 - (node_filesystem_avail_bytes{instance=~".*db.*", mountpoint="/"} / node_filesystem_size_bytes{instance=~".*db.*", mountpoint="/"} * 100) > 85
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "High level of disk usage"
-          description: "Utilized 85% of storage on {{ $labels.instance }}."
+          summary: "DB: High level of disk usage"
 
-      - alert: "[llm]-[test]-[ollama]-[down]"
-        expr: up{job="ollama"} == 0
+      - alert: "[llm]-[test]-[db]-[high]-[cpu]"
+        expr: avg by(instance) (rate(node_cpu_seconds_total{instance=~".*db.*", mode!="idle"}[5m])) * 100 > 85
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DB: High CPU usage"
+
+      - alert: "[llm]-[test]-[db]-[high]-[memory]"
+        expr: (1 - (node_memory_MemAvailable_bytes{instance=~".*db.*"} / node_memory_MemTotal_bytes{instance=~".*db.*"})) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "DB: High Memory usage"
+
+      # --- EC2 Alerts ---
+      - alert: "[llm]-[test]-[ec2]-[high]-[cpu]"
+        expr: avg by(instance) (rate(node_cpu_seconds_total{instance!~".*db.*", mode!="idle"}[5m])) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "EC2: High CPU usage"
+
+      - alert: "[llm]-[test]-[ec2]-[low]-[cpu]"
+        expr: avg by(instance) (rate(node_cpu_seconds_total{instance!~".*db.*", mode!="idle"}[5m])) * 100 < 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "EC2: Low CPU usage (Instance underutilized)"
+        description: "CPU usage on {{ $labels.instance }} has been below 5% for 15 minutes. Consider downsizing the instance type to save costs."
+
+      - alert: "[llm]-[test]-[ec2]-[high]-[memory]"
+        expr: (1 - (node_memory_MemAvailable_bytes{instance!~".*db.*"} / node_memory_MemTotal_bytes{instance!~".*db.*"})) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "EC2: High Memory usage"
+
+      - alert: "[llm]-[test]-[ec2]-[low]-[memory]"
+        expr: (node_memory_MemAvailable_bytes{instance!~".*db.*"} / node_memory_MemTotal_bytes{instance!~".*db.*"}) * 100 < 10
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "EC2: Low Free Memory"
+
+      - alert: "[llm]-[test]-[ec2]-[high]-[disk-space]"
+        expr: 100 - (node_filesystem_avail_bytes{instance!~".*db.*", mountpoint="/"} / node_filesystem_size_bytes{instance!~".*db.*", mountpoint="/"} * 100) > 85
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "EC2: High disk space usage"
+
+      - alert: "[llm]-[test]-[ec2]-[low]-[disk-space]"
+        expr: (node_filesystem_avail_bytes{instance!~".*db.*", mountpoint="/"} / node_filesystem_size_bytes{instance!~".*db.*", mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "EC2: Low free disk space"
+
+      - alert: "[llm]-[test]-[ec2]-[service]-[ollama]"
+        expr: up{job="ollama_exporter"} == 0
         for: 2m
         labels:
           severity: critical
         annotations:
           summary: "Service Ollama is down"
-          description: "Ollama on instance {{ $labels.instance }} stop responding."
 
-      - alert: "[llm]-[test]-[ec2]-[high]-[cpu]"
-        expr: avg by(instance) (rate(node_cpu_seconds_total{mode!="idle"}[5m])) * 100 > 90
+      # --- ELB / CloudWatch Alerts ---
+      - alert: "[llm]-[test]-[elb]-[high]-[host-count]"
+        expr: aws_applicationelb_un_healthy_host_count_maximum > 0
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "High CPU usage on {{ $labels.instance }}"
-          description: "CPU usage is above 90% for more than 5 minutes on {{ $labels.instance }}."
-      
-      - alert: "[llm]-[test]-[alb]-[high]-[4xx]"
-        expr: sum by(LoadBalancer) (rate(HTTPCode_Target_4XX_Count{job="cloudwatch_exporter"}[5m])) > 100
+          summary: "ALB: High Unhealthy Host Count"
+          description: "One or more target hosts attached to the ALB are failing health checks."
+
+      - alert: "[llm]-[test]-[elb]-[medium]-[4XX-errors]"
+        expr: sum by(LoadBalancer) (rate(aws_applicationelb_httpcode_target_4_xx_count_sum[5m])) > 10
         for: 5m
         labels:
           severity: warning
         annotations:
-          summary: "High number of 4xx errors on {{ $labels.LoadBalancer }}"
-          description: "More than 100 4xx errors per minute on {{ $labels.LoadBalancer }} for more than 5 minutes."
-      
-      - alert: "[llm]-[test]-[alb]-[high]-[5xx]"
-        expr: sum by(LoadBalancer) (rate(HTTPCode_Target_5XX_Count{job="cloudwatch_exporter"}[5m])) > 50
+          summary: "ALB: Frequent 4XX Errors"
+
+      - alert: "[llm]-[test]-[elb]-[medium]-[5XX-errors]"
+        expr: sum by(LoadBalancer) (rate(aws_applicationelb_httpcode_target_5_xx_count_sum[5m])) > 5
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "High number of 5xx errors on {{ $labels.LoadBalancer }}"
-          description: "More than 50 5xx errors per minute on {{ $labels.LoadBalancer }} for more than 5 minutes."
-      
-      - alert: "[llm]-[test]-[alb]-[unhealthy]-[targets]"
-        expr: avg by(LoadBalancer) (HealthyHostCount{job="cloudwatch_exporter"}) < 2
-        for: 5m
-        labels:
-          severity: critical
-        annotations:
-          summary: "Unhealthy targets on {{ $labels.LoadBalancer }}"
-          description: "Less than 2 healthy targets on {{ $labels.LoadBalancer }} for more than 5 minutes." 
+          summary: "ALB: Frequent 5XX Errors"

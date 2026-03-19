@@ -1,18 +1,24 @@
+global:
+  resolve_timeout: 5m
+
 route:
-  group_by: ['alertname']
+  group_by: ['alertname', 'instance', 'severity']
   group_wait: 30s
   group_interval: 5m
-  repeat_interval: 3h
-  receiver: 'telegram-notifications'
+  repeat_interval: 1h
+  receiver: 'slack-notifications'
 
 receivers:
-- name: 'telegram-notifications'
-  telegram_configs:
-  - bot_token: '${bot_token}'
-    chat_id: ${chat_id}
-    parse_mode: 'HTML'
-    message: |
-      <b>🚨 Alert: {{ .Status | toUpper }}</b>
-      <b>Name:</b> {{ .CommonLabels.alertname }}
-      <b>Server:</b> {{ .CommonLabels.instance }}
-      <b>Description:</b> {{ .CommonAnnotations.description }}
+  - name: 'slack-notifications'
+    slack_configs:
+      - api_url: '${slack_webhook_url}' 
+        channel: '#monitoring-alerts'  
+        send_resolved: true
+        title: '{{ if eq .Status "firing" }}🔥 ALARM:{{ else }}✅ RESOLVED:{{ end }} {{ .CommonLabels.alertname }}'
+        text: >-
+          {{ range .Alerts }}
+            *Alert:* {{ .Annotations.summary }}
+            *Description:* {{ .Annotations.description }}
+            *Severity:* `{{ .Labels.severity }}`
+            *Instance:* {{ .Labels.instance }}
+          {{ end }}

@@ -24,7 +24,7 @@ module "compute" {
   telegram_bot_token = var.telegram_bot_token
   telegram_chat_id   = var.telegram_chat_id
   db_password = var.db_password
-
+  slack_webhook_url = var.slack_webhook_url
 }
 
 
