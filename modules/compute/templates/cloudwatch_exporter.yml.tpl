@@ -1,4 +1,4 @@
-region: eu-north-1
+region: ${region}
 metrics:
   - aws_namespace: AWS/ApplicationELB
     aws_metric_name: HTTPCode_Target_4XX_Count
@@ -12,5 +12,10 @@ metrics:
 
   - aws_namespace: AWS/ApplicationELB
     aws_metric_name: HealthyHostCount
+    aws_dimensions: [LoadBalancer, TargetGroup]
+    aws_statistics: [Average]
+
+  - aws_namespace: AWS/ApplicationELB
+    aws_metric_name: UnHealthyHostCount
     aws_dimensions: [LoadBalancer, TargetGroup]
     aws_statistics: [Average]

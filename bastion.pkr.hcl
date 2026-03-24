@@ -1,4 +1,11 @@
-
+packer {
+  required_plugins {
+    amazon = {
+      version = ">= 1.2.8"
+      source  = "github.com/hashicorp/amazon"
+    }
+  }
+}
 
 source "amazon-ebs" "bastion" {
   ami_name      = "bastion-host-{{timestamp}}"
@@ -15,7 +22,9 @@ source "amazon-ebs" "bastion" {
     owners      = ["099720109477"] # Canonical
   }
   
-  ssh_username = "ubuntu"
+  subnet_id                   = "subnet-08776b4ee365bf258"
+  associate_public_ip_address = true
+  ssh_username                = "ubuntu"
   
   tags = {
     Role    = "bastion"

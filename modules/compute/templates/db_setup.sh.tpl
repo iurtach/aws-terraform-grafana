@@ -1,42 +1,33 @@
 #!/bin/bash
 exec > >(tee /var/log/user-data.log|logger -t user-data -s 2>/dev/console) 2>&1
 
-echo "Starting user_data script..."
+# PostgreSQL, pgvector, postgres-exporter, and node-exporter are
+# pre-installed by the Packer AMI. This script only configures them.
 
-apt-get update
+systemctl enable postgresql
+systemctl start postgresql
 
-until apt-get update; do
-  echo "Waiting for apt lock..."
-  sleep 5
+# Wait for PostgreSQL to accept connections
+until sudo -u postgres psql -c '\q' 2>/dev/null; do
+  echo "Waiting for PostgreSQL to start..."
+  sleep 2
 done
 
-apt-get install -y docker.io
+# Create application user, database, and enable pgvector extension
+sudo -u postgres psql -c "CREATE USER admin WITH PASSWORD '${db_password}';"
+sudo -u postgres psql -c "CREATE DATABASE llm_test_db OWNER admin;"
+sudo -u postgres psql -d llm_test_db -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
-systemctl start docker
-systemctl enable docker
+# Configure postgres-exporter with the connection string
+mkdir -p /etc/systemd/system/prometheus-postgres-exporter.service.d
+cat > /etc/systemd/system/prometheus-postgres-exporter.service.d/override.conf <<'EOT'
+[Service]
+Environment="DATA_SOURCE_NAME=postgresql://admin:${db_password}@localhost:5432/llm_test_db?sslmode=disable"
+EOT
 
-sleep 10 # Wait for Docker to be fully up and running
+systemctl daemon-reload
+systemctl enable prometheus-postgres-exporter
+systemctl start prometheus-postgres-exporter
 
-echo "Pulling docker images..."
-docker pull postgres:latest
-docker pull prometheuscommunity/postgres-exporter:latest
-docker pull prom/node-exporter:latest
-
-# Run Postgres container
-docker run -d --name postgres --network host \
-  -e POSTGRES_PASSWORD=${db_password} \
-  -e POSTGRES_USER=admin \
-  -e POSTGRES_DB=llm_test_db \
-  --restart always \
-  postgres:latest
-
-# Run Postgres Exporter
-docker run -d --name postgres_exporter --network host \
-  -e DATA_SOURCE_NAME="postgresql://admin:${db_password}@localhost:5432/llm_test_db?sslmode=disable" \
-  --restart always \
-  prometheuscommunity/postgres-exporter:latest
-
-# Run Node Exporter
-docker run -d --name node_exporter --network host \
-  --restart always \
-  prom/node-exporter:latest
+systemctl enable prometheus-node-exporter
+systemctl start prometheus-node-exporter

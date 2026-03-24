@@ -20,7 +20,9 @@ source "amazon-ebs" "llm_gpu" {
     most_recent = true
     owners      = ["099720109477"] # Canonical
   }
-  ssh_username = "ubuntu"
+  subnet_id                   = "subnet-08776b4ee365bf258"
+  associate_public_ip_address = true
+  ssh_username                = "ubuntu"
   tags = {
     Role    = "llm"
     Project = "llm-test"

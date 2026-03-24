@@ -8,7 +8,7 @@ resource "aws_security_group" "bastion_sg" {
     from_port   = 22
     to_port     = 22
     protocol    = "tcp"
-    cidr_blocks = ["195.160.232.69/32"]
+    cidr_blocks = ["195.160.232.67/32"]
   }
 
   egress {
@@ -85,7 +85,7 @@ resource "aws_security_group" "alb" {
     from_port   = 9093 # Alertmanager UI
     to_port     = 9093
     protocol    = "tcp"
-    cidr_blocks = ["195.160.232.69/32"] 
+    cidr_blocks = ["195.160.232.67/32"] 
   }
 
 

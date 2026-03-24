@@ -42,7 +42,6 @@ groups:
           severity: warning
         annotations:
           summary: "EC2: Low CPU usage (Instance underutilized)"
-        description: "CPU usage on {{ $labels.instance }} has been below 5% for 15 minutes. Consider downsizing the instance type to save costs."
 
       - alert: "[llm]-[test]-[ec2]-[high]-[memory]"
         expr: (1 - (node_memory_MemAvailable_bytes{instance!~".*db.*"} / node_memory_MemTotal_bytes{instance!~".*db.*"})) * 100 > 90
@@ -77,7 +76,7 @@ groups:
           summary: "EC2: Low free disk space"
 
       - alert: "[llm]-[test]-[ec2]-[service]-[ollama]"
-        expr: up{job="ollama_exporter"} == 0
+        expr: probe_success{job="ollama_exporter"} == 0
         for: 2m
         labels:
           severity: critical
